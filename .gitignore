@@ -1,0 +1,12 @@
+/.next/*
+/node_modules/*
+/.idea/*
+/TODO
+/*.code-workspace
+/bundles
+.DS_STORE
+.env
+.eslintrc.*
+build
+.vscode
+/static/*
