@@ -3,6 +3,35 @@ const https = require('https')
 const fs = require('fs')
 const Youtube = require('youtube-stream-url')
 const router = new Router()
+const {spawn} = require('child_process')
+
+router.get('/pull', async(req, res) =>{
+    let name = req.query.name
+    let ls = spawn(`D:/UnityProject/${name}/pull.cmd`)
+    let log = ''
+    ls.stdout.on("data", data => {
+        console.log(`stdout: ${data}`)
+        log += `stdout: ${data}\n`
+    });
+
+    ls.stderr.on("data", data => {
+        console.log(`stderr: ${data}`)
+        log += `stderr: ${data}\n`
+    });
+
+    ls.on('error', (error) => {
+        console.log(`error: ${error.message}`)
+        log += `error: ${error.message}\n`
+    });
+
+    ls.on("close", code => {
+        console.log(`child process exited with code ${code}`)
+        log += `Exited with code ${code}\n`
+        res.send(log)
+    });
+
+})
+
 
 router.get('/getVideo', (req, res) => {
     try{
