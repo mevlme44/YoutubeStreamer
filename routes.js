@@ -1,96 +1,139 @@
 const Router = require('express').Router
+const Stream = require('./Stream')
 const https = require('https')
 const fs = require('fs')
 const Youtube = require('youtube-stream-url')
 const router = new Router()
-const {spawn} = require('child_process')
+const clientRouter = new Router()
+const streams = new Array()
+console.log('\x1Bc');
 
-router.get('/pull', async(req, res) =>{
-    let name = req.query.name
-    let ls = spawn(`D:/UnityProject/${name}/pull.cmd`)
-    let log = ''
-    ls.stdout.on("data", data => {
-        console.log(`stdout: ${data}`)
-        log += `stdout: ${data}\n`
-    });
-
-    ls.stderr.on("data", data => {
-        console.log(`stderr: ${data}`)
-        log += `stderr: ${data}\n`
-    });
-
-    ls.on('error', (error) => {
-        console.log(`error: ${error.message}`)
-        log += `error: ${error.message}\n`
-    });
-
-    ls.on("close", code => {
-        console.log(`child process exited with code ${code}`)
-        log += `Exited with code ${code}\n`
-        res.send(log)
-    });
-
+clientRouter.get('/', (req, res) =>{
+    res.sendFile('index.html', {root: 'client'})
+})
+clientRouter.get('/stream', (req, res) =>{
+    res.sendFile('stream.html', {root: 'client'})
 })
 
-
 router.get('/getVideo', (req, res) => {
+    const chunk = 10**6
     try{
         let url = req.query.url
-        console.log(url)
-        if (!url) res.json(['error : Empty request'])
-
+        if (!url) {
+            res.status(400).json(['error : Empty request'])
+            return
+        }
         Youtube.getInfo({url}).then(video => {
-            const fileName = `.\\static\\${video['videoDetails']['videoId']}.mp4`
-            fs.access(fileName, fs.constants.F_OK, (err) => {
-                if (err === null) {
-                    let rs = fs.createReadStream(fileName)
-                    let { size } = fs.statSync(fileName)
-                    res.setHeader('Content-Type', 'video/mp4')
-                    res.setHeader('Content-Length', size)
-                    rs.on('finish', () => res.send('ok'))
-                    rs.on('error', () => res.send('error'))
-                    rs.pipe(res)
+            //const fileName = `.\\static\\${video['videoDetails']['videoId']}.mp4`
+            let videoId = video['videoDetails']['videoId']
+            let userId = req.query.userId
+            let disable = req.query['isDisable']
+            let i = streams.indexOf(streams.find(stream => stream.userId === userId))
+            if (disable) {
+                if (i !== -1) {
+                    streams.splice(i, 1)
+                    res.status(200).send('Disabled')
+                    console.log('\nstreams:')
+                    streams.forEach(s => console.log(s.videoId))
+                    return
+                }else{
+                    res.status(400).send('Cant find index')
+                    return
                 }
-                else {
+            }
+
+            if (streams.find(s => s.userId === userId) && i !== -1){
+                streams.splice(i, 1)
+            }
+            // fs.access(fileName, fs.constants.F_OK, (err) => {
+            //     if (err === null) {
+            //         const range = req.headers.range
+            //         if (!range) {
+            //             res.status(400).send('Requires range header')
+            //             console.log('headers')
+            //             return
+            //         }
+            //         const start = Number(range.replace(/\D/g,''))
+            //         let size = fs.statSync(fileName).size
+            //         let end = Math.min(start + chunk, size - 1);
+            //         let contentLength = end-start + 1
+            //         let headers = {
+            //             'Content-Range': `bytes ${start}-${end}/${size}`,
+            //             'Accept-Ranges': 'bytes',
+            //             'Content-Length': contentLength,
+            //             'Content-Type': 'video/mp4',
+            //         }
+            //         res.writeHead(206, headers)
+            //         let rs = fs.createReadStream(fileName, {start, end})
+            //         rs.pipe(res)
+            //     }
+            //     else {
                     let formats = Object.keys(video.formats).map(format => video.formats[format])
                     try {
-                        let formatUrl = formats.find((format) => format['qualityLabel'].includes('360') && format['mimeType'].includes('mp4'))['url']
+                        let formatUrl = formats.find((format) => format['qualityLabel'].includes('720') && format['mimeType'].includes('mp4'))['url']
                         const request = https.get(formatUrl, response => {
                             if (response.statusCode === 200) {
-                                const file = fs.createWriteStream(fileName, { flags: 'wx' })
-                                file.on('error', err => {
-                                    file.close()
-                                    if (err.code === 'EEXIST') res.send('error')
-                                    else fs.unlink(fileName, () => res.send('error'))
-                                })
-                                response.pipe(file)
-                                response.pipe(res)
+                                //const file = fs.createWriteStream(fileName)
+                                //file.on('error', err => {
+                                    //file.close()
+                                    //if (err.code === 'EEXIST') res.send('error')
+                                    //else fs.unlink(fileName, () => res.send('error'))
+                                //})
+                                //let headers = {
+                                    //'Content-Type': 'video/mp4',
+                                //}
+                                //res.writeHead(206, headers)
+                                //response.pipe(file)
+                                //let rs = fs.createReadStream(fileName)
+
+                                let i = streams.indexOf(streams.find(stream => stream.videoId === videoId && stream.userId === userId))
+                                if (i === -1) {
+                                    res.setHeader('Content-Type', 'video/mp4')
+                                    response.pipe(res)
+                                    streams.push(new Stream(userId, videoId, response))
+
+                                }
+                                else {
+                                    res.status(400).send('video is coming')
+                                }
                             } else {
-                                res.send(`Server responded with ${response.statusCode}: ${response.statusMessage}`)
+                                res.status(400).send(`Server responded with ${response.statusCode}: ${response.statusMessage}`)
                             }
+                            console.log('\nstreams:')
+                            streams.forEach(s => console.log(s.videoId))
                         })
 
                         request.on('error', err => {
-                            res.send('error')
+                            res.status(400).send('error')
                         });
 
                     } catch (e){
-                        console.log(e)
-                        res.send(e)
+                        res.status(400).send(e)
                     }
-                }
-            })
+            //     }
+            // })
         }).catch((e) => {
-            res.send("Youtube Error")
+            res.status(400).send("Youtube Error")
+            console.log(e)
         })
     }
     catch (e){
         res.send(e)
     }
+})
 
+router.get('/getStream', (req, res) => {
+    let uid = req.query.userId
+    let stream = streams.find(s => s.userId === uid)
+
+    if (!stream){
+        res.status(400).send('No video')
+        return
+    }
 
 })
 
-router.get('/getAudio')
-
-module.exports = router
+module.exports = {
+    router,
+    clientRouter
+}
